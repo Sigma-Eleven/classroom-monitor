@@ -1,21 +1,22 @@
-# 课堂专注度监测与学习行为分析助手（无数据库版）
+# 课堂专注度监测与学习行为分析助手
 
-基于 Spring Boot + Spring AI + DeepSeek（视觉/多模态）实现的课堂图片专注度与学习行为分析 Demo。  
-项目不使用数据库：上传记录、识别结果、统计数据仅保存在内存中，重启后自动清空。
+基于 Spring Boot + DeepSeek（视觉/多模态）实现的课堂图片专注度与学习行为分析 Demo。  
+项目不使用数据库：识别记录与统计数据保存在内存中（重启后清空）；上传图片保存到本地 `./uploads`（相同内容自动去重）。
 
 ## 目录
 
 - [环境要求](#环境要求)
 - [快速启动](#快速启动)
-- [DeepSeek 配置](#deepseek-配置不要把-key-写进仓库)
+- [API 调用](#api-调用)
+- [DeepSeek 配置](#deepseek-配置)
 - [功能与页面](#功能与页面)
 - [接口列表（后端）](#接口列表后端)
 - [常见问题](#常见问题)
 
 ## 环境要求
 
-- JDK 17+（建议 17；你本机是 Java 26 也可运行）
-- Maven Wrapper（项目自带 `mvnw.cmd`，无需单独安装 Maven）
+- JDK 17+
+- Maven Wrapper（项目包含 `mvnw.cmd`）
 
 ## 快速启动
 
@@ -30,17 +31,40 @@
 
 - <http://localhost:8080/>
 
-## DeepSeek 配置（不要把 Key 写进仓库）
+也可以打包后运行：
+
+```powershell
+.\mvnw.cmd -DskipTests clean package
+java -jar .\target\classroom-monitor.jar
+```
+
+## API 调用
+
+后端启动后，接口统一前缀：`/api/v1`（默认端口 8080）。
+
+上传并识别：
+
+```powershell
+curl -X POST "http://localhost:8080/api/v1/analyze" -F "file=@C:\path\to\image.jpg"
+```
+
+仅上传（返回 uploadId + 预览地址）：
+
+```powershell
+curl -X POST "http://localhost:8080/api/v1/upload" -F "file=@C:\path\to\image.jpg"
+```
+
+## DeepSeek 配置
 
 配置文件：
 
 - [application.yml](src/main/resources/application.yml)
 
-默认不启用真实 AI 调用（走模拟识别），避免未配置 Key 时启动失败。
+默认关闭真实 AI 调用（走模拟识别）。
 
 ### 启用真实 DeepSeek 调用
 
-1. 设置环境变量（推荐，不会上传到 GitHub）：
+1. 设置环境变量 `DEEPSEEK_API_KEY`：
 
 ```powershell
 $env:DEEPSEEK_API_KEY="你的DeepSeekKey"
@@ -52,7 +76,7 @@ $env:DEEPSEEK_API_KEY="你的DeepSeekKey"
 - `app.ai.enabled: true`
 - 如需视觉模型：把 `spring.ai.deepseek.chat.model` 改成 DeepSeek 平台实际提供的视觉模型名称
 
-提示：如果你曾经把 Key 明文写进文件并提交过，请立刻作废旧 Key 并生成新 Key。
+如果密钥曾被提交到代码仓库，需要在平台侧作废旧密钥并更换新密钥。
 
 ## 功能与页面
 
@@ -92,7 +116,7 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 .\mvnw.cmd -v
 ```
 
-建议永久设置：Windows 环境变量中设置 `JAVA_HOME=D:\java`，并在 `Path` 增加 `%JAVA_HOME%\bin`。
+也可以在 Windows 环境变量中设置 `JAVA_HOME`，并在 `Path` 增加 `%JAVA_HOME%\bin`。
 
 ### 2) 8080 端口被占用（Port 8080 was already in use）
 
@@ -106,6 +130,8 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 
 - <http://localhost:8081/>
 
+停止服务（释放端口）：回到运行 `mvn spring-boot:run` 的终端，按 `Ctrl + C`。
+
 ### 3) IDEA 里提示 “The import xxx cannot be resolved”，但命令行能编译成功
 
 通常是 IDEA 没有重新导入 Maven 依赖：
@@ -117,4 +143,4 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 ## 关于 application.yaml
 
 项目中同时存在 `application.yml` 与 `application.yaml` 时可能造成配置理解混乱。  
-建议仅保留 `application.yml`，并避免在 `application.yaml` 中放任何配置项。
+本项目使用 `application.yml`。

@@ -22,6 +22,7 @@ function setError(message) {
 
 function setLoading(loading) {
   document.getElementById("submitBtn").disabled = loading;
+  document.getElementById("fileInput").disabled = loading;
 }
 
 function pct(v) {
@@ -87,8 +88,13 @@ async function uploadAndAnalyze(file) {
   const form = new FormData();
   form.append("file", file);
 
-  const res = await fetch("/api/v1/analyze", { method: "POST", body: form });
-  const json = await res.json();
+  const res = await fetch("/api/v1/analyze", { method: "POST", body: form, cache: "no-store" });
+  let json;
+  try {
+    json = await res.json();
+  } catch {
+    throw new Error("服务返回异常，请刷新后重试");
+  }
   if (!json.success) {
     throw new Error(json.message || "请求失败");
   }
@@ -114,6 +120,6 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     setError(err.message || "请求失败");
   } finally {
     setLoading(false);
+    input.value = "";
   }
 });
-

@@ -1,20 +1,25 @@
 package com.example.classroom_monitor.service;
 
-import com.example.classroom_monitor.config.AppProperties;
-import com.example.classroom_monitor.exception.AppException;
-import com.example.classroom_monitor.model.UploadRecord;
-import com.example.classroom_monitor.store.InMemorySessionStore;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.UUID;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
+
+import com.example.classroom_monitor.config.AppProperties;
+import com.example.classroom_monitor.exception.AppException;
+import com.example.classroom_monitor.model.UploadRecord;
+import com.example.classroom_monitor.store.InMemorySessionStore;
 
 @Service
 public class UploadService {
@@ -50,7 +55,13 @@ public class UploadService {
 
 		String uploadId = UUID.randomUUID().toString().replace("-", "");
 		String safeOriginal = StringUtils.hasText(originalFilename) ? Paths.get(originalFilename).getFileName().toString() : ("upload." + ext);
-		String storedFilename = uploadId + "_" + safeOriginal;
+		String contentHash = sha256Hex(file);
+		String extByType = extensionByContentType(contentType);
+		String storedExt = StringUtils.hasText(extByType) ? extByType : ext;
+		if (!StringUtils.hasText(storedExt)) {
+			storedExt = "img";
+		}
+		String storedFilename = contentHash + "." + storedExt;
 
 		Path uploadDir = Paths.get(properties.getUpload().getDir()).toAbsolutePath().normalize();
 		try {
@@ -62,7 +73,9 @@ public class UploadService {
 
 		Path target = uploadDir.resolve(storedFilename).normalize();
 		try {
-			file.transferTo(target);
+			if (Files.notExists(target)) {
+				file.transferTo(target);
+			}
 		}
 		catch (IOException e) {
 			throw new AppException("IO_ERROR", HttpStatus.INTERNAL_SERVER_ERROR, "保存图片失败");
@@ -78,6 +91,33 @@ public class UploadService {
 		);
 		store.putUpload(record);
 		return record;
+	}
+
+	private static String sha256Hex(MultipartFile file) {
+		try (InputStream in = file.getInputStream()) {
+			MessageDigest md = MessageDigest.getInstance("SHA-256");
+			byte[] buf = new byte[8192];
+			int n;
+			while ((n = in.read(buf)) > 0) {
+				md.update(buf, 0, n);
+			}
+			return HexFormat.of().formatHex(md.digest());
+		}
+		catch (Exception e) {
+			throw new AppException("HASH_ERROR", HttpStatus.INTERNAL_SERVER_ERROR, "计算文件指纹失败");
+		}
+	}
+
+	private static String extensionByContentType(String contentType) {
+		if (!StringUtils.hasText(contentType)) {
+			return "";
+		}
+		return switch (contentType) {
+			case "image/jpeg" -> "jpg";
+			case "image/png" -> "png";
+			case "image/webp" -> "webp";
+			default -> "";
+		};
 	}
 
 	private static String extensionOf(String filename) {
