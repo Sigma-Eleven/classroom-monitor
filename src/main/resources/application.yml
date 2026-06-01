@@ -1,0 +1,40 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: classroom-monitor
+  servlet:
+    multipart:
+      max-file-size: 10MB # 上传图片大小限制
+      max-request-size: 10MB # 单次请求大小限制
+  mvc:
+    async:
+      request-timeout: 30s # 接口整体超时（异步请求），避免长时间阻塞
+
+  ai:
+    deepseek:
+      base-url: https://api.deepseek.com # DeepSeek 接口基础地址
+      api-key: ${DEEPSEEK_API_KEY:} # DeepSeek 个人 API Key（建议使用环境变量注入）
+      chat:
+        enabled: false # 未配置 Key 时建议保持 false；配置完成后改为 true 启用 DeepSeek
+        model: deepseek-chat # 指定使用的模型（如需视觉模型请改为平台提供的视觉模型名称）
+        temperature: 0.0
+
+app:
+  upload:
+    dir: ./uploads # 图片临时保存目录（相对路径：以启动目录为基准）
+    max-size: 10MB # 后端二次校验：文件大小
+    allowed-content-types: ["image/jpeg", "image/png", "image/webp"] # 允许的图片 MIME
+    allowed-extensions: ["jpg", "jpeg", "png", "webp"] # 允许的文件后缀
+  ai:
+    enabled: false # 是否启用真实 AI 调用；未配置 Key 时保持 false 使用模拟识别
+    request-timeout: 30s # AI 调用超时（业务级超时）
+  analysis:
+    weights:
+      ATTENTIVE: 1.0
+      HEAD_DOWN: 0.6
+      SLEEPING: 0.0
+      PHONE: 0.1
+      DISTRACTED: 0.4
+      OTHER: 0.5
