@@ -3,9 +3,11 @@ package com.example.classroom_monitor.config;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import lombok.Data;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.unit.DataSize;
+
+import lombok.Data;
 
 @Data
 @ConfigurationProperties(prefix = "app")
@@ -27,7 +29,7 @@ public class AppProperties {
 
 	@Data
 	public static class Ai {
-		private boolean enabled = true;
+		private boolean enabled = false;
 		private Duration requestTimeout = Duration.ofSeconds(30);
 	}
 

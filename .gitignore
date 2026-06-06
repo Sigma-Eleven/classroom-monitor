@@ -2,7 +2,8 @@ HELP.md
 target/
 uploads/
 .env
-.env.*
+.env.local
+.env.*.local
 *.log
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/

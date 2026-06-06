@@ -1,16 +1,14 @@
 # 课堂专注度监测与学习行为分析助手
 
-基于 Spring Boot + DeepSeek（视觉/多模态）实现的课堂图片专注度与学习行为分析 Demo。  
-项目不使用数据库：识别记录与统计数据保存在内存中（重启后清空）；上传图片保存到本地 `./uploads`（相同内容自动去重）。
+基于 Spring Boot + Spring AI + Kimi（Moonshot，视觉/多模态）实现的课堂图片专注度与学习行为分析 Demo。
 
 ## 目录
 
 - [环境要求](#环境要求)
-- [快速启动](#快速启动)
+- [启动与打包](#启动与打包)
+- [配置（Kimi）](#配置kimi)
 - [API 调用](#api-调用)
-- [DeepSeek 配置](#deepseek-配置)
-- [功能与页面](#功能与页面)
-- [接口列表（后端）](#接口列表后端)
+- [数据与文件](#数据与文件)
 - [常见问题](#常见问题)
 
 ## 环境要求
@@ -18,29 +16,53 @@
 - JDK 17+
 - Maven Wrapper（项目包含 `mvnw.cmd`）
 
-## 快速启动
+## 启动与打包
 
-在项目根目录运行：
+在项目根目录运行（开发启动）：
 
 ```powershell
-.\mvnw.cmd -DskipTests compile
-.\mvnw.cmd spring-boot:run
+.\mvnw.cmd -DskipTests spring-boot:run
 ```
 
-启动成功后打开页面：
+页面入口：
 
 - <http://localhost:8080/>
 
-也可以打包后运行：
+打包并运行：
 
 ```powershell
 .\mvnw.cmd -DskipTests clean package
 java -jar .\target\classroom-monitor.jar
 ```
 
+## 配置（Kimi）
+
+默认关闭真实 AI 调用（走模拟识别），避免在未配置密钥时启动失败。
+
+启用真实识别建议使用本机 `.env`（项目启动时自动读取，且 `.env` 已在 `.gitignore` 中忽略，不会提交到仓库）：
+
+1. 复制 `.env.example` 为 `.env`
+
+2. 在 `.env` 中设置：
+
+- `KIMI_API_KEY=你的KimiKey`
+- `APP_AI_ENABLED=true`
+- `KIMI_MODEL=moonshot-v1-8k-vision-preview`（图片识别使用视觉模型）
+
+可选配置：
+
+- `KIMI_BASE_URL=https://api.moonshot.cn`（OpenAI 兼容接口地址）
+- `KIMI_COMPLETIONS_PATH=/v1/chat/completions`（一般不需要改；当 base-url 自己包含 `/v1` 时可设为 `/chat/completions`）
+
+兼容项（可选）：
+
+- `.env` 中填写 `MOONSHOT_API_KEY` 时，会自动按 `KIMI_API_KEY` 使用
+
+默认值与完整配置入口见 [application.yml](src/main/resources/application.yml) 与 [.env.example](.env.example)。
+
 ## API 调用
 
-后端启动后，接口统一前缀：`/api/v1`（默认端口 8080）。
+后端接口统一前缀：`/api/v1`（默认端口 8080）。
 
 上传并识别：
 
@@ -54,45 +76,7 @@ curl -X POST "http://localhost:8080/api/v1/analyze" -F "file=@C:\path\to\image.j
 curl -X POST "http://localhost:8080/api/v1/upload" -F "file=@C:\path\to\image.jpg"
 ```
 
-## DeepSeek 配置
-
-配置文件：
-
-- [application.yml](src/main/resources/application.yml)
-
-默认关闭真实 AI 调用（走模拟识别）。
-
-### 启用真实 DeepSeek 调用
-
-1. 设置环境变量 `DEEPSEEK_API_KEY`：
-
-```powershell
-$env:DEEPSEEK_API_KEY="你的DeepSeekKey"
-```
-
-2. 修改 `application.yml`：
-
-- `spring.ai.deepseek.chat.enabled: true`
-- `app.ai.enabled: true`
-- 如需视觉模型：把 `spring.ai.deepseek.chat.model` 改成 DeepSeek 平台实际提供的视觉模型名称
-
-如果密钥曾被提交到代码仓库，需要在平台侧作废旧密钥并更换新密钥。
-
-## 功能与页面
-
-打开首页（静态页面）：
-
-- <http://localhost:8080/>
-
-支持：
-
-- 上传课堂图片
-- 调用 AI 识别（或模拟识别）
-- 展示专注度评分、抬头率、行为占比图表、课堂小结
-
-## 接口列表（后端）
-
-统一前缀：`/api/v1`
+接口列表：
 
 | 方法 | 路径                              | 说明                                   |
 | ---- | --------------------------------- | -------------------------------------- |
@@ -104,19 +88,22 @@ $env:DEEPSEEK_API_KEY="你的DeepSeekKey"
 | GET  | `/api/v1/stats`                   | 查询会话内汇总统计                     |
 | GET  | `/api/v1/uploads/{uploadId}/file` | 图片预览                               |
 
+## 数据与文件
+
+- 不使用数据库：识别记录与统计数据保存在内存中（重启后清空）
+- 上传图片保存到本地 `./uploads`：同内容自动去重（内容哈希一致则复用同一文件）
+
 ## 常见问题
 
 ### 1) 提示 “JAVA_HOME environment variable is not defined correctly”
 
-`mvnw.cmd` 依赖 `JAVA_HOME`。你可以在 PowerShell 临时设置（以你的 JDK 目录为准）：
+`mvnw.cmd` 依赖 `JAVA_HOME`。可以在 PowerShell 临时设置（以实际 JDK 目录为准）：
 
 ```powershell
 $env:JAVA_HOME="D:\java"
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
 .\mvnw.cmd -v
 ```
-
-也可以在 Windows 环境变量中设置 `JAVA_HOME`，并在 `Path` 增加 `%JAVA_HOME%\bin`。
 
 ### 2) 8080 端口被占用（Port 8080 was already in use）
 
@@ -126,21 +113,14 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 .\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--server.port=8081"
 ```
 
-然后打开：
+页面入口：
 
 - <http://localhost:8081/>
 
-停止服务（释放端口）：回到运行 `mvn spring-boot:run` 的终端，按 `Ctrl + C`。
+### 3) 识别报错 404，出现 /v1/v1/chat/completions
 
-### 3) IDEA 里提示 “The import xxx cannot be resolved”，但命令行能编译成功
+`KIMI_BASE_URL` 不建议带 `/v1`，推荐：`https://api.moonshot.cn`。
 
-通常是 IDEA 没有重新导入 Maven 依赖：
+### 4) 识别报错 “Not found the model … / Permission denied”
 
-- 右侧 Maven 工具窗口 → Reload All Maven Projects
-- Settings → Build Tools → Maven → JDK for importer / Runner JRE 选择你的 JDK（如 `D:\java`）
-- 仍不行：File → Invalidate Caches / Restart
-
-## 关于 application.yaml
-
-项目中同时存在 `application.yml` 与 `application.yaml` 时可能造成配置理解混乱。  
-本项目使用 `application.yml`。
+请使用账号可用的视觉模型，例如：`moonshot-v1-8k-vision-preview`。

@@ -5,6 +5,10 @@ spring:
   application:
     name: classroom-monitor
   servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
     multipart:
       max-file-size: 10MB # 上传图片大小限制
       max-request-size: 10MB # 单次请求大小限制
@@ -13,13 +17,19 @@ spring:
       request-timeout: 30s # 接口整体超时（异步请求），避免长时间阻塞
 
   ai:
-    deepseek:
-      base-url: https://api.deepseek.com # DeepSeek 接口基础地址
-      api-key: ${DEEPSEEK_API_KEY:} # DeepSeek 个人 API Key（建议使用环境变量注入）
+    model:
+      audio:
+        speech: disabled
+        transcription: disabled
+    openai:
+      base-url: ${KIMI_BASE_URL:https://api.moonshot.cn} # Kimi（Moonshot）OpenAI 兼容接口地址
+      api-key: ${KIMI_API_KEY:} # Kimi API Key（建议使用环境变量注入）
       chat:
-        enabled: false # 未配置 Key 时建议保持 false；配置完成后改为 true 启用 DeepSeek
-        model: deepseek-chat # 指定使用的模型（如需视觉模型请改为平台提供的视觉模型名称）
-        temperature: 0.0
+        enabled: ${APP_AI_ENABLED:false}
+        completions-path: ${KIMI_COMPLETIONS_PATH:/v1/chat/completions}
+        options:
+          model: ${KIMI_MODEL:moonshot-v1-8k-vision-preview}
+          temperature: 0.0
 
 app:
   upload:
@@ -28,8 +38,8 @@ app:
     allowed-content-types: ["image/jpeg", "image/png", "image/webp"] # 允许的图片 MIME
     allowed-extensions: ["jpg", "jpeg", "png", "webp"] # 允许的文件后缀
   ai:
-    enabled: false # 是否启用真实 AI 调用；未配置 Key 时保持 false 使用模拟识别
-    request-timeout: 30s # AI 调用超时（业务级超时）
+    enabled: ${APP_AI_ENABLED:false} # 是否启用真实 AI 调用；默认走模拟识别
+    request-timeout: 30s # AI 调用超时
   analysis:
     weights:
       ATTENTIVE: 1.0

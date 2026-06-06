@@ -1,28 +1,31 @@
 package com.example.classroom_monitor.service;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Base64;
-import java.util.Collections;
 import java.util.EnumMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.springframework.core.env.Environment;
-import org.springframework.http.HttpHeaders;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.content.Media;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.util.MimeType;
+import org.springframework.util.MimeTypeUtils;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import com.example.classroom_monitor.config.AppProperties;
@@ -38,25 +41,23 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class AiVisionFacadeService implements AiVisionService {
 
+	private static final Logger log = LoggerFactory.getLogger(AiVisionFacadeService.class);
+
+	private final ObjectProvider<ChatModel> chatModelProvider;
 	private final ObjectMapper objectMapper;
 	private final AppProperties properties;
 	private final ExecutorService executorService;
-	private final Environment environment;
-	private final RestClient restClient;
 
 	public AiVisionFacadeService(
+			ObjectProvider<ChatModel> chatModelProvider,
 			ObjectMapper objectMapper,
 			AppProperties properties,
-			ExecutorService aiExecutorService,
-			Environment environment
+			ExecutorService aiExecutorService
 	) {
+		this.chatModelProvider = chatModelProvider;
 		this.objectMapper = objectMapper;
 		this.properties = properties;
 		this.executorService = aiExecutorService;
-		this.environment = environment;
-		this.restClient = RestClient.builder()
-				.baseUrl(readString("spring.ai.deepseek.base-url", "https://api.deepseek.com"))
-				.build();
 	}
 
 	@Override
@@ -65,13 +66,14 @@ public class AiVisionFacadeService implements AiVisionService {
 			return mockRecognition(upload);
 		}
 
-		if (!deepSeekChatEnabled() || !StringUtils.hasText(readString("spring.ai.deepseek.api-key", ""))) {
+		ChatModel chatModel = chatModelProvider.getIfAvailable();
+		if (chatModel == null) {
 			return mockRecognition(upload);
 		}
 
 		Duration timeout = properties.getAi().getRequestTimeout();
 		try {
-			return CompletableFuture.supplyAsync(() -> doRecognize(upload), executorService)
+			return CompletableFuture.supplyAsync(() -> doRecognize(chatModel, upload), executorService)
 					.orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS)
 					.join();
 		}
@@ -80,11 +82,59 @@ public class AiVisionFacadeService implements AiVisionService {
 			if (root instanceof java.util.concurrent.TimeoutException) {
 				throw new AppException("AI_TIMEOUT", HttpStatus.GATEWAY_TIMEOUT, "AI 调用超时，请稍后重试或调大超时配置");
 			}
-			throw new AppException("AI_ERROR", HttpStatus.BAD_GATEWAY, "AI 识别失败，请检查 DeepSeek 配置与网络");
+			logAiFailure(upload, root);
+			throw new AppException("AI_ERROR", HttpStatus.BAD_GATEWAY, buildAiErrorMessage(root));
 		}
 	}
 
-	private AiRecognitionResult doRecognize(UploadRecord upload) {
+	private void logAiFailure(UploadRecord upload, Throwable root) {
+		if (root instanceof RestClientResponseException e) {
+			String body = e.getResponseBodyAsString();
+			if (body != null && body.length() > 2000) {
+				body = body.substring(0, 2000);
+			}
+			log.warn("AI request failed. uploadId={}, status={}, error={}, body={}", upload.uploadId(), e.getStatusCode().value(), safeOneLine(e.getMessage()), safeOneLine(body));
+			return;
+		}
+		log.warn("AI request failed. uploadId={}, error={}", upload.uploadId(), safeOneLine(root.toString()));
+	}
+
+	private String buildAiErrorMessage(Throwable root) {
+		if (root instanceof RestClientResponseException e) {
+			int status = e.getStatusCode().value();
+			String providerHint = "AI 识别失败，请检查 Kimi 配置与网络";
+			if (status == 401 || status == 403) {
+				return providerHint + "（鉴权失败：请检查 KIMI_API_KEY / 权限）";
+			}
+			if (status == 429) {
+				return providerHint + "（触发限流：请稍后重试或检查额度）";
+			}
+			if (status >= 500) {
+				return providerHint + "（服务端错误：" + status + "）";
+			}
+			return providerHint + "（HTTP " + status + "）";
+		}
+		String msg = String.valueOf(root);
+		if (msg.contains("/v1/v1/") || msg.contains("url.not_found")) {
+			return "AI 识别失败：KIMI_BASE_URL 配置不正确（不要带 /v1），例如 https://api.moonshot.cn";
+		}
+		if (msg.contains("Not found the model") || msg.contains("Permission denied") || msg.contains("model")) {
+			return "AI 识别失败：模型不可用或无权限，请检查 KIMI_MODEL 是否为你账号可用的视觉模型";
+		}
+		return "AI 识别失败，请检查 Kimi 配置与网络";
+	}
+
+	private static String safeOneLine(String s) {
+		if (s == null) {
+			return "";
+		}
+		return s.replace("\r", " ").replace("\n", " ").trim();
+	}
+
+	private AiRecognitionResult doRecognize(ChatModel chatModel, UploadRecord upload) {
+		MimeType mimeType = toMimeType(upload.contentType());
+		var imageResource = new FileSystemResource(upload.absolutePath());
+
 		String schema = """
 				输出严格 JSON（不要 markdown 代码块），结构如下：
 				{
@@ -113,37 +163,17 @@ public class AiVisionFacadeService implements AiVisionService {
 				请统计各类人数，并按上面的 JSON 结构输出。
 				""";
 
-		Map<String, Object> body = new LinkedHashMap<>();
-		body.put("model", readString("spring.ai.deepseek.chat.model", "deepseek-chat"));
-		body.put("temperature", readDouble("spring.ai.deepseek.chat.temperature", 0.0));
+		List<Message> messages = List.of(
+				new SystemMessage("你只输出 JSON，不要解释。"),
+				UserMessage.builder()
+						.text(instruction + "\n" + schema)
+						.media(List.of(new Media(mimeType, imageResource)))
+						.build()
+		);
 
-		List<Map<String, Object>> messages = new ArrayList<>();
-		messages.add(Map.of("role", "system", "content", "你只输出 JSON，不要解释。"));
-
-		List<Map<String, Object>> content = new ArrayList<>();
-		content.add(Map.of("type", "text", "text", instruction + "\n" + schema));
-		String dataUrl = imageDataUrl(upload);
-		if (StringUtils.hasText(dataUrl)) {
-			content.add(Map.of("type", "image_url", "image_url", Map.of("url", dataUrl)));
-		}
-		messages.add(Map.of("role", "user", "content", content));
-		body.put("messages", messages);
-
-		String apiKey = readString("spring.ai.deepseek.api-key", "");
-		try {
-			String raw = restClient.post()
-					.uri("/chat/completions")
-					.header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-					.header(HttpHeaders.CONTENT_TYPE, "application/json")
-					.body(body)
-					.retrieve()
-					.body(String.class);
-			String text = extractAssistantText(raw);
-			return parseRecognition(text);
-		}
-		catch (RestClientResponseException e) {
-			throw new AppException("AI_HTTP_ERROR", HttpStatus.BAD_GATEWAY, "AI 服务调用失败：" + e.getStatusCode().value());
-		}
+		ChatResponse response = chatModel.call(new Prompt(messages));
+		String text = Objects.requireNonNull(response.getResult().getOutput().getText());
+		return parseRecognition(text);
 	}
 
 	private AiRecognitionResult parseRecognition(String raw) {
@@ -187,60 +217,6 @@ public class AiVisionFacadeService implements AiVisionService {
 		}
 	}
 
-	private boolean deepSeekChatEnabled() {
-		return environment.getProperty("spring.ai.deepseek.chat.enabled", Boolean.class, false);
-	}
-
-	private String imageDataUrl(UploadRecord upload) {
-		if (upload == null || !StringUtils.hasText(upload.absolutePath()) || !StringUtils.hasText(upload.contentType())) {
-			return null;
-		}
-		try {
-			byte[] bytes = Files.readAllBytes(Path.of(upload.absolutePath()));
-			String base64 = Base64.getEncoder().encodeToString(bytes);
-			return "data:" + upload.contentType() + ";base64," + base64;
-		}
-		catch (IOException e) {
-			return null;
-		}
-	}
-
-	private String extractAssistantText(String rawResponse) {
-		if (!StringUtils.hasText(rawResponse)) {
-			return "{}";
-		}
-		try {
-			JsonNode root = objectMapper.readTree(rawResponse);
-			JsonNode choice0 = root.path("choices").isArray() && root.path("choices").size() > 0 ? root.path("choices").get(0) : null;
-			if (choice0 == null) {
-				return rawResponse;
-			}
-			String content = choice0.path("message").path("content").asText(null);
-			if (StringUtils.hasText(content)) {
-				return content;
-			}
-			JsonNode delta = choice0.path("delta");
-			String deltaContent = delta.path("content").asText(null);
-			if (StringUtils.hasText(deltaContent)) {
-				return deltaContent;
-			}
-			return rawResponse;
-		}
-		catch (Exception e) {
-			return rawResponse;
-		}
-	}
-
-	private String readString(String key, String defaultValue) {
-		String v = environment.getProperty(key);
-		return StringUtils.hasText(v) ? v : defaultValue;
-	}
-
-	private double readDouble(String key, double defaultValue) {
-		Double v = environment.getProperty(key, Double.class);
-		return v == null ? defaultValue : v;
-	}
-
 	private static String extractFirstJsonObject(String raw) {
 		if (!StringUtils.hasText(raw)) {
 			return "{}";
@@ -262,6 +238,13 @@ public class AiVisionFacadeService implements AiVisionService {
 		}
 	}
 
+	private static MimeType toMimeType(String contentType) {
+		if (!StringUtils.hasText(contentType)) {
+			return MimeTypeUtils.IMAGE_JPEG;
+		}
+		return MimeType.valueOf(contentType);
+	}
+
 	private static Throwable unwrap(Throwable ex) {
 		Throwable cur = ex;
 		while (cur.getCause() != null && cur != cur.getCause()) {
@@ -271,90 +254,32 @@ public class AiVisionFacadeService implements AiVisionService {
 	}
 
 	private AiRecognitionResult mockRecognition(UploadRecord upload) {
-		long seed = seedFromUpload(upload);
-		Random rnd = new Random(seed);
-
-		int total = 10 + rnd.nextInt(31);
-		Map<StudentBehavior, Double> base = Map.of(
-				StudentBehavior.ATTENTIVE, 0.42,
-				StudentBehavior.HEAD_DOWN, 0.24,
-				StudentBehavior.SLEEPING, 0.05,
-				StudentBehavior.PHONE, 0.06,
-				StudentBehavior.DISTRACTED, 0.18,
-				StudentBehavior.OTHER, 0.05
-		);
-
-		Map<StudentBehavior, Double> w = new EnumMap<>(StudentBehavior.class);
-		double sumW = 0.0;
-		for (StudentBehavior b : StudentBehavior.values()) {
-			double v = base.getOrDefault(b, 0.0) * (0.6 + rnd.nextDouble());
-			w.put(b, v);
-			sumW += v;
-		}
+		int total = 30;
 
 		Map<StudentBehavior, Integer> behaviors = new EnumMap<>(StudentBehavior.class);
-		int allocated = 0;
-		for (StudentBehavior b : StudentBehavior.values()) {
-			int c = (int) Math.floor((w.getOrDefault(b, 0.0) / sumW) * total);
-			behaviors.put(b, Math.max(0, c));
-			allocated += behaviors.get(b);
-		}
-
-		int remaining = total - allocated;
-		List<StudentBehavior> order = new ArrayList<>(List.of(StudentBehavior.values()));
-		Collections.shuffle(order, rnd);
-		for (int i = 0; i < remaining; i++) {
-			StudentBehavior b = order.get(i % order.size());
-			behaviors.put(b, behaviors.getOrDefault(b, 0) + 1);
-		}
-
-		if (behaviors.getOrDefault(StudentBehavior.ATTENTIVE, 0) == 0) {
-			StudentBehavior takeFrom = behaviors.getOrDefault(StudentBehavior.HEAD_DOWN, 0) > 0 ? StudentBehavior.HEAD_DOWN : StudentBehavior.OTHER;
-			if (behaviors.getOrDefault(takeFrom, 0) > 0) {
-				behaviors.put(takeFrom, behaviors.getOrDefault(takeFrom, 0) - 1);
-				behaviors.put(StudentBehavior.ATTENTIVE, 1);
-			}
-		}
+		behaviors.put(StudentBehavior.ATTENTIVE, 16);
+		behaviors.put(StudentBehavior.HEAD_DOWN, 7);
+		behaviors.put(StudentBehavior.DISTRACTED, 3);
+		behaviors.put(StudentBehavior.PHONE, 2);
+		behaviors.put(StudentBehavior.SLEEPING, 1);
+		behaviors.put(StudentBehavior.OTHER, 1);
 
 		List<StudentState> students = new ArrayList<>();
-		List<StudentBehavior> expanded = new ArrayList<>();
-		for (StudentBehavior b : StudentBehavior.values()) {
-			int c = behaviors.getOrDefault(b, 0);
-			for (int i = 0; i < c; i++) {
-				expanded.add(b);
-			}
-		}
-		Collections.shuffle(expanded, rnd);
 		int no = 1;
-		for (StudentBehavior b : expanded) {
-			if (students.size() >= 60) {
-				break;
+		for (StudentBehavior b : List.of(
+				StudentBehavior.ATTENTIVE,
+				StudentBehavior.HEAD_DOWN,
+				StudentBehavior.DISTRACTED,
+				StudentBehavior.PHONE,
+				StudentBehavior.SLEEPING,
+				StudentBehavior.OTHER
+		)) {
+			int c = behaviors.getOrDefault(b, 0);
+			for (int i = 0; i < c && students.size() < 60; i++) {
+				students.add(new StudentState(no++, b, 0.85));
 			}
-			double confidence = 0.6 + (rnd.nextDouble() * 0.35);
-			students.add(new StudentState(no++, b, Math.round(confidence * 100.0) / 100.0));
 		}
-		return new AiRecognitionResult(total, behaviors, students);
-	}
 
-	private static long seedFromUpload(UploadRecord upload) {
-		if (upload == null) {
-			return 0L;
-		}
-		if (StringUtils.hasText(upload.absolutePath())) {
-			try {
-				byte[] bytes = Files.readAllBytes(Path.of(upload.absolutePath()));
-				MessageDigest md = MessageDigest.getInstance("SHA-256");
-				byte[] d = md.digest(bytes);
-				long v = 0L;
-				for (int i = 0; i < Math.min(8, d.length); i++) {
-					v = (v << 8) | (d[i] & 0xffL);
-				}
-				return v;
-			}
-			catch (Exception ignored) {
-			}
-		}
-		String key = StringUtils.hasText(upload.uploadId()) ? upload.uploadId() : upload.originalFilename();
-		return key == null ? 0L : key.hashCode();
+		return new AiRecognitionResult(total, behaviors, students);
 	}
 }
