@@ -177,55 +177,132 @@ public class AiVisionFacadeService implements AiVisionService {
 	}
 
 	private AiRecognitionResult parseRecognition(String raw) {
+		log.debug("AI raw response: {}", raw);
 		String json = extractFirstJsonObject(raw);
 		try {
-			JsonNode node = objectMapper.readTree(json);
-			int total = node.path("totalStudents").asInt(0);
-
-			Map<StudentBehavior, Integer> behaviors = new EnumMap<>(StudentBehavior.class);
-			JsonNode b = node.path("behaviors");
-			for (StudentBehavior behavior : StudentBehavior.values()) {
-				behaviors.put(behavior, b.path(behavior.name()).asInt(0));
-			}
-
-			List<StudentState> students = new ArrayList<>();
-			JsonNode s = node.path("students");
-			if (s.isArray()) {
-				for (JsonNode item : s) {
-					if (students.size() >= 60) {
-						break;
-					}
-					int studentNo = item.path("studentNo").asInt(students.size() + 1);
-					String behaviorStr = item.path("behavior").asText("OTHER");
-					Double confidence = item.hasNonNull("confidence") ? item.get("confidence").asDouble() : null;
-					students.add(new StudentState(studentNo, safeBehavior(behaviorStr), confidence));
-				}
-			}
-
-			if (total <= 0) {
-				total = behaviors.values().stream().mapToInt(Integer::intValue).sum();
-			}
-
-			if (total <= 0) {
-				total = Math.max(1, students.size());
-			}
-
-			return new AiRecognitionResult(total, behaviors, students);
+			return doParse(json);
 		}
 		catch (Exception e) {
-			throw new AppException("AI_PARSE_ERROR", HttpStatus.BAD_GATEWAY, "AI 返回内容无法解析为结构化结果");
+			log.warn("Initial parse failed, attempting repair. error={}", e.getMessage());
+			try {
+				String repaired = repairJson(json);
+				log.debug("Repaired JSON: {}", repaired);
+				return doParse(repaired);
+			}
+			catch (Exception e2) {
+				log.warn("Failed to parse AI response even after repair. raw={}, extracted_json={}", raw, json, e2);
+				throw new AppException("AI_PARSE_ERROR", HttpStatus.BAD_GATEWAY, "AI 返回内容无法解析为结构化结果");
+			}
 		}
+	}
+
+	private AiRecognitionResult doParse(String json) throws Exception {
+		JsonNode node = objectMapper.readTree(json);
+		int total = node.path("totalStudents").asInt(0);
+
+		Map<StudentBehavior, Integer> behaviors = new EnumMap<>(StudentBehavior.class);
+		JsonNode b = node.path("behaviors");
+		for (StudentBehavior behavior : StudentBehavior.values()) {
+			behaviors.put(behavior, b.path(behavior.name()).asInt(0));
+		}
+
+		List<StudentState> students = new ArrayList<>();
+		JsonNode s = node.path("students");
+		if (s.isArray()) {
+			for (JsonNode item : s) {
+				if (students.size() >= 60) {
+					break;
+				}
+				// 如果是截断的对象，跳过不完整的项
+				if (!item.isObject() || !item.has("behavior")) {
+					continue;
+				}
+				int studentNo = item.path("studentNo").asInt(students.size() + 1);
+				String behaviorStr = item.path("behavior").asText("OTHER");
+				Double confidence = item.hasNonNull("confidence") ? item.get("confidence").asDouble() : null;
+				students.add(new StudentState(studentNo, safeBehavior(behaviorStr), confidence));
+			}
+		}
+
+		if (total <= 0) {
+			total = behaviors.values().stream().mapToInt(Integer::intValue).sum();
+		}
+
+		if (total <= 0) {
+			total = Math.max(1, students.size());
+		}
+
+		return new AiRecognitionResult(total, behaviors, students);
+	}
+
+	/**
+	 * 简单的 JSON 修复逻辑，用于处理因 Token 限制被截断的情况
+	 */
+	private static String repairJson(String json) {
+		if (!StringUtils.hasText(json)) {
+			return "{}";
+		}
+		
+		// 1. 找到最后一个完整的对象/数组结束符
+		int lastBrace = json.lastIndexOf('}');
+		int lastBracket = json.lastIndexOf(']');
+		int lastValidEnd = Math.max(lastBrace, lastBracket);
+		
+		if (lastValidEnd <= 0) return json;
+		
+		// 2. 截断到最后一个可能完整的位置
+		String truncated = json.substring(0, lastValidEnd + 1);
+		
+		// 3. 补全缺失的闭合符号
+		StringBuilder repaired = new StringBuilder(truncated);
+		int openBraces = countOccurrences(truncated, '{') - countOccurrences(truncated, '}');
+		int openBrackets = countOccurrences(truncated, '[') - countOccurrences(truncated, ']');
+		
+		while (openBrackets > 0) {
+			repaired.append(']');
+			openBrackets--;
+		}
+		while (openBraces > 0) {
+			repaired.append('}');
+			openBraces--;
+		}
+		
+		return repaired.toString();
+	}
+
+	private static int countOccurrences(String str, char c) {
+		int count = 0;
+		for (int i = 0; i < str.length(); i++) {
+			if (str.charAt(i) == c) count++;
+		}
+		return count;
 	}
 
 	private static String extractFirstJsonObject(String raw) {
 		if (!StringUtils.hasText(raw)) {
 			return "{}";
 		}
+
+		// 1. 优先尝试提取 Markdown 代码块中的内容
+		int codeStart = raw.indexOf("```json");
+		if (codeStart >= 0) {
+			int contentStart = codeStart + 7;
+			int codeEnd = raw.indexOf("```", contentStart);
+			if (codeEnd > contentStart) {
+				String content = raw.substring(contentStart, codeEnd).trim();
+				if (content.startsWith("{") && content.endsWith("}")) {
+					return content;
+				}
+			}
+		}
+
+		// 2. 寻找第一个 { 和最后一个 }
 		int start = raw.indexOf('{');
 		int end = raw.lastIndexOf('}');
 		if (start >= 0 && end > start) {
 			return raw.substring(start, end + 1);
 		}
+
 		return raw.trim();
 	}
 

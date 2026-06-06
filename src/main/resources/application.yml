@@ -1,6 +1,11 @@
 server:
   port: 8080
 
+logging:
+  level:
+    com.example.classroom_monitor: DEBUG
+    org.springframework.ai: DEBUG
+
 spring:
   application:
     name: classroom-monitor
@@ -30,6 +35,7 @@ spring:
         options:
           model: ${KIMI_MODEL:moonshot-v1-8k-vision-preview}
           temperature: 0.0
+          max-tokens: 2048 # 增加最大 Token 数，防止长 JSON 截断
 
 app:
   upload:
