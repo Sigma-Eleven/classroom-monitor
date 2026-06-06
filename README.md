@@ -67,13 +67,20 @@ java -jar .\target\classroom-monitor.jar
 上传并识别：
 
 ```powershell
-curl -X POST "http://localhost:8080/api/v1/analyze" -F "file=@C:\path\to\image.jpg"
+curl.exe -X POST "http://localhost:8080/api/v1/analyze" -F "file=@C:\path\to\image.jpg"
 ```
 
 仅上传（返回 uploadId + 预览地址）：
 
 ```powershell
-curl -X POST "http://localhost:8080/api/v1/upload" -F "file=@C:\path\to\image.jpg"
+curl.exe -X POST "http://localhost:8080/api/v1/upload" -F "file=@C:\path\to\image.jpg"
+```
+
+如果你在 PowerShell 里直接写 `curl`，它可能会被解析成 `Invoke-WebRequest`，从而不支持 `-X/-F` 参数。此时可以改用 PowerShell 原生方式上传：
+
+```powershell
+$filePath = "C:\path\to\image.jpg"
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/analyze" -Form @{ file = Get-Item $filePath }
 ```
 
 接口列表：
