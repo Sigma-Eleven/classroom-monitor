@@ -49,6 +49,9 @@ public class DotenvEnvironmentPostProcessor implements EnvironmentPostProcessor,
 				continue;
 			}
 			value = stripQuotes(value);
+			if (!StringUtils.hasText(value)) {
+				continue;
+			}
 			map.put(key, value);
 		}
 

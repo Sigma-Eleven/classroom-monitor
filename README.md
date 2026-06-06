@@ -52,7 +52,7 @@ java -jar .\target\classroom-monitor.jar
 可选配置：
 
 - `KIMI_BASE_URL=https://api.moonshot.cn`（OpenAI 兼容接口地址）
-- `KIMI_COMPLETIONS_PATH=/v1/chat/completions`（一般不需要改；当 base-url 自己包含 `/v1` 时可设为 `/chat/completions`）
+- `KIMI_COMPLETIONS_PATH=/v1/chat/completions`（一般不需要改；当 base-url 自己包含 `/v1` 时可设为 `/chat/completions`；不需要就不要写该项，避免写成空值）
 
 兼容项（可选）：
 

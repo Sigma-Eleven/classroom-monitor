@@ -1,12 +1,14 @@
 package com.example.classroom_monitor.exception;
 
-import com.example.classroom_monitor.dto.ApiResponse;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+
+import com.example.classroom_monitor.dto.ApiResponse;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -19,7 +21,7 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(MaxUploadSizeExceededException.class)
 	public ResponseEntity<ApiResponse<Void>> handleMaxUploadSize(MaxUploadSizeExceededException ex) {
-		return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+		return ResponseEntity.status(HttpStatus.valueOf(413))
 				.body(ApiResponse.fail("UPLOAD_TOO_LARGE", "上传文件过大，请选择更小的图片"));
 	}
 

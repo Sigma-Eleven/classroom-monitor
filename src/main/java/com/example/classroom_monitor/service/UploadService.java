@@ -39,7 +39,7 @@ public class UploadService {
 
 		long maxBytes = properties.getUpload().getMaxSize().toBytes();
 		if (file.getSize() > maxBytes) {
-			throw new AppException("FILE_TOO_LARGE", HttpStatus.PAYLOAD_TOO_LARGE, "上传文件过大，请选择更小的图片");
+			throw new AppException("FILE_TOO_LARGE", HttpStatus.valueOf(413), "上传文件过大，请选择更小的图片");
 		}
 
 		String contentType = file.getContentType();
