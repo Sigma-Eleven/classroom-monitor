@@ -63,12 +63,12 @@ public class AiVisionFacadeService implements AiVisionService {
 	@Override
 	public AiRecognitionResult recognize(UploadRecord upload) {
 		if (!properties.getAi().isEnabled()) {
-			return mockRecognition(upload);
+			return mockRecognition();
 		}
 
 		ChatModel chatModel = chatModelProvider.getIfAvailable();
 		if (chatModel == null) {
-			return mockRecognition(upload);
+			return mockRecognition();
 		}
 
 		Duration timeout = properties.getAi().getRequestTimeout();
@@ -88,15 +88,16 @@ public class AiVisionFacadeService implements AiVisionService {
 	}
 
 	private void logAiFailure(UploadRecord upload, Throwable root) {
+		String uploadId = upload == null ? "" : String.valueOf(upload.uploadId());
 		if (root instanceof RestClientResponseException e) {
 			String body = e.getResponseBodyAsString();
 			if (body != null && body.length() > 2000) {
 				body = body.substring(0, 2000);
 			}
-			log.warn("AI request failed. uploadId={}, status={}, error={}, body={}", upload.uploadId(), e.getStatusCode().value(), safeOneLine(e.getMessage()), safeOneLine(body));
+			log.warn("AI request failed. uploadId={}, status={}, error={}, body={}", uploadId, e.getStatusCode().value(), safeOneLine(e.getMessage()), safeOneLine(body));
 			return;
 		}
-		log.warn("AI request failed. uploadId={}, error={}", upload.uploadId(), safeOneLine(root.toString()));
+		log.warn("AI request failed. uploadId={}, error={}", uploadId, safeOneLine(String.valueOf(root)));
 	}
 
 	private String buildAiErrorMessage(Throwable root) {
@@ -218,7 +219,10 @@ public class AiVisionFacadeService implements AiVisionService {
 					continue;
 				}
 				int studentNo = item.path("studentNo").asInt(students.size() + 1);
-				String behaviorStr = item.path("behavior").asText("OTHER");
+				String behaviorStr = jsonText(item.get("behavior"));
+				if (!StringUtils.hasText(behaviorStr)) {
+					behaviorStr = "OTHER";
+				}
 				Double confidence = item.hasNonNull("confidence") ? item.get("confidence").asDouble() : null;
 				students.add(new StudentState(studentNo, safeBehavior(behaviorStr), confidence));
 			}
@@ -315,6 +319,17 @@ public class AiVisionFacadeService implements AiVisionService {
 		}
 	}
 
+	private static String jsonText(JsonNode node) {
+		if (node == null || node.isNull()) {
+			return null;
+		}
+		String raw = String.valueOf(node).trim();
+		if (raw.length() >= 2 && raw.charAt(0) == '"' && raw.charAt(raw.length() - 1) == '"') {
+			return raw.substring(1, raw.length() - 1);
+		}
+		return raw;
+	}
+
 	private static MimeType toMimeType(String contentType) {
 		if (!StringUtils.hasText(contentType)) {
 			return MimeTypeUtils.IMAGE_JPEG;
@@ -330,7 +345,7 @@ public class AiVisionFacadeService implements AiVisionService {
 		return cur;
 	}
 
-	private AiRecognitionResult mockRecognition(UploadRecord upload) {
+	private AiRecognitionResult mockRecognition() {
 		int total = 30;
 
 		Map<StudentBehavior, Integer> behaviors = new EnumMap<>(StudentBehavior.class);
