@@ -159,9 +159,29 @@ public class AiVisionFacadeService implements AiVisionService {
 				""";
 
 		String instruction = """
-				你是一名课堂学习行为分析助手。请分析图片中的多名学生，区分：
-				抬头听课(ATTENTIVE)、低头(HEAD_DOWN)、睡觉(SLEEPING)、玩手机(PHONE)、走神(DISTRACTED)、其他(OTHER)。
-				请统计各类人数，并按上面的 JSON 结构输出。
+				你是一名“课堂学习行为分析”助手。请只基于图片可见信息，识别画面中每位学生的行为，并输出统计。
+				
+				分类定义（尽量贴近课堂场景）：
+				- ATTENTIVE（抬头听课）：视线朝向老师/黑板/投影/讲台/前方；坐姿相对端正；像是在听讲或看板书。
+				- HEAD_DOWN（低头）：头部明显朝下，视线在桌面/书本/试卷/笔记本；包含“写字/看书/做题”等学习动作；但不包含玩手机与睡觉。
+				- SLEEPING（睡觉）：眼睛闭合或明显困倦；趴桌/靠椅睡、头枕手臂、身体松弛无学习动作；若疑似睡觉优先判为 SLEEPING 而不是 HEAD_DOWN。
+				- PHONE（玩手机）：手持手机或桌面有手机且视线明显盯着手机；双手操作手机等。
+				- DISTRACTED（走神/分心）：视线游离不看前方也不看学习材料；聊天、转身看后方、做与课堂无关的事；发呆不专注但非睡觉。
+				- OTHER（其他/无法判断）：被遮挡、只出现局部无法判断、太模糊/太远、或行为不属于以上类别。
+				
+				优先级规则（解决不准确/冲突情况）：
+				- 若能明确看到手机并在使用：优先 PHONE
+				- 若明显睡着/趴睡：优先 SLEEPING
+				- 若低头在写字/看书：HEAD_DOWN（不要当作走神）
+				- 不确定时不要猜：OTHER，并把 confidence 设低一些（例如 0.3~0.6）
+				
+				计数规则：
+				- totalStudents = 画面中可辨识的学生人数（尽量估计，避免漏数/重复数）
+				- behaviors 各项之和必须等于 totalStudents
+				- students 明细最多 60 条，studentNo 从 1 开始即可（不需要对应真实座位号）
+				- confidence 为 0~1 的小数，越接近 1 表示越确定
+				
+				请按上面的 JSON 结构输出，除 JSON 外不要输出任何解释文字。
 				""";
 
 		List<Message> messages = List.of(
