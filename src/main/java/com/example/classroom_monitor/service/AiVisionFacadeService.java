@@ -214,7 +214,6 @@ public class AiVisionFacadeService implements AiVisionService {
 				if (students.size() >= 60) {
 					break;
 				}
-				// 如果是截断的对象，跳过不完整的项
 				if (!item.isObject() || !item.has("behavior")) {
 					continue;
 				}
@@ -239,25 +238,19 @@ public class AiVisionFacadeService implements AiVisionService {
 		return new AiRecognitionResult(total, behaviors, students);
 	}
 
-	/**
-	 * 简单的 JSON 修复逻辑，用于处理因 Token 限制被截断的情况
-	 */
 	private static String repairJson(String json) {
 		if (!StringUtils.hasText(json)) {
 			return "{}";
 		}
 		
-		// 1. 找到最后一个完整的对象/数组结束符
 		int lastBrace = json.lastIndexOf('}');
 		int lastBracket = json.lastIndexOf(']');
 		int lastValidEnd = Math.max(lastBrace, lastBracket);
 		
 		if (lastValidEnd <= 0) return json;
 		
-		// 2. 截断到最后一个可能完整的位置
 		String truncated = json.substring(0, lastValidEnd + 1);
 		
-		// 3. 补全缺失的闭合符号
 		StringBuilder repaired = new StringBuilder(truncated);
 		int openBraces = countOccurrences(truncated, '{') - countOccurrences(truncated, '}');
 		int openBrackets = countOccurrences(truncated, '[') - countOccurrences(truncated, ']');
@@ -287,7 +280,6 @@ public class AiVisionFacadeService implements AiVisionService {
 			return "{}";
 		}
 
-		// 1. 优先尝试提取 Markdown 代码块中的内容
 		int codeStart = raw.indexOf("```json");
 		if (codeStart >= 0) {
 			int contentStart = codeStart + 7;
@@ -300,7 +292,6 @@ public class AiVisionFacadeService implements AiVisionService {
 			}
 		}
 
-		// 2. 寻找第一个 { 和最后一个 }
 		int start = raw.indexOf('{');
 		int end = raw.lastIndexOf('}');
 		if (start >= 0 && end > start) {
