@@ -161,7 +161,7 @@ public class AiVisionFacadeService implements AiVisionService {
 		String instruction = """
 				你是一名“课堂学习行为分析”助手。请只基于图片可见信息，识别画面中每位学生的行为，并输出统计。
 				
-				分类定义（尽量贴近课堂场景）：
+				分类定义：
 				- ATTENTIVE（抬头听课）：视线朝向老师/黑板/投影/讲台/前方；坐姿相对端正；像是在听讲或看板书。
 				- HEAD_DOWN（低头）：头部明显朝下，视线在桌面/书本/试卷/笔记本；包含“写字/看书/做题”等学习动作；但不包含玩手机与睡觉。
 				- SLEEPING（睡觉）：眼睛闭合或明显困倦；趴桌/靠椅睡、头枕手臂、身体松弛无学习动作；若疑似睡觉优先判为 SLEEPING 而不是 HEAD_DOWN。
@@ -169,7 +169,7 @@ public class AiVisionFacadeService implements AiVisionService {
 				- DISTRACTED（走神/分心）：视线游离不看前方也不看学习材料；聊天、转身看后方、做与课堂无关的事；发呆不专注但非睡觉。
 				- OTHER（其他/无法判断）：被遮挡、只出现局部无法判断、太模糊/太远、或行为不属于以上类别。
 				
-				优先级规则（解决不准确/冲突情况）：
+				优先级规则：
 				- 若能明确看到手机并在使用：优先 PHONE
 				- 若明显睡着/趴睡：优先 SLEEPING
 				- 若低头在写字/看书：HEAD_DOWN（不要当作走神）
